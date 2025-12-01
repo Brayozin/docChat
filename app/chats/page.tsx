@@ -30,18 +30,18 @@ export default function ChatsPage() {
   } = useDocumentState()
 
   return (
-    <SidebarProvider className="bg-transparent">
+    <SidebarProvider className="bg-transparent h-full w-full">
       <Sidebar
         variant="floating"
         collapsible="icon"
-        className="bg-transparent backdrop-blur-[1px] mt-20 h-[calc(100vh-10rem)] **:data-[sidebar=sidebar]:bg-transparent"
+        className="bg-transparent backdrop-blur-[1px] h-full **:data-[sidebar=sidebar]:bg-transparent"
       >
         <SidebarContent className="p-4 bg-transparent">
           <SidebarTrigger />
         </SidebarContent>
       </Sidebar>
-      <SidebarInset className="bg-transparent!">
-        <div className="relative flex h-[calc(100vh-10rem)] w-full items-center justify-center p-3 mt-20 bg-transparent">
+      <SidebarInset className="bg-transparent! h-[94.5vh] w-full">
+        <div className="relative flex h-full w-full p-3 box-border bg-transparent">
           {!isListVisible && (
             <DocumentToggleButton onClick={toggleList} isActive={false} />
           )}

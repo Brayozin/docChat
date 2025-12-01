@@ -37,7 +37,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <div
-            className="flex min-h-screen flex-col items-center bg-white font-sans dark:bg-black"
+            className="h-screen overflow-hidden flex flex-col items-center bg-white font-sans dark:bg-black"
             style={{
               backgroundImage:
                 "radial-gradient(circle, rgb(174, 181, 191) 1.5px, transparent 1.5px)",
@@ -48,14 +48,17 @@ export default function RootLayout({
             <NavigationBar />
 
             {/* Theme Toggle */}
-            <div className="fixed top-4 right-4 z-50">
-              <div className="bg-rose-50/40 backdrop-blur-[1px] border-rose-300 border-2 px-1 py-1 rounded-full">
+            <div className="fixed top-2 right-2 z-50">
+              <div className="bg-rose-50/40 backdrop-blur-[1px] border-rose-300 border-2 p-0.5 rounded-full">
                 <ThemeToggle />
               </div>
             </div>
 
+            {/* Header Spacer */}
+            <div className="h-14 w-full flex-shrink-0" />
+
             {/* Page Content */}
-            <div className="flex-1 flex items-center justify-center w-full">
+            <div className="w-full overflow-hidden" style={{ height: 'calc(100vh - 3.5rem)' }}>
               {children}
             </div>
           </div>
