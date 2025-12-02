@@ -33,16 +33,38 @@ export function useDocumentState() {
   }
 
   const selectDocument = (id: string) => {
-    setSelectedDocumentId(id)
+    if (!document.startViewTransition) {
+      setSelectedDocumentId(id)
+      return
+    }
+
+    document.startViewTransition(() => {
+      setSelectedDocumentId(id)
+    })
   }
 
   const closeList = () => {
-    setIsListVisible(false)
-    setSelectedDocumentId(null)
+    if (!document.startViewTransition) {
+      setIsListVisible(false)
+      setSelectedDocumentId(null)
+      return
+    }
+
+    document.startViewTransition(() => {
+      setIsListVisible(false)
+      setSelectedDocumentId(null)
+    })
   }
 
   const goBackToList = () => {
-    setSelectedDocumentId(null)
+    if (!document.startViewTransition) {
+      setSelectedDocumentId(null)
+      return
+    }
+
+    document.startViewTransition(() => {
+      setSelectedDocumentId(null)
+    })
   }
 
   const selectedDocument = selectedDocumentId
