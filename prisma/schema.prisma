@@ -1,0 +1,65 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Chat {
+  id          String    @id @default(cuid())
+  title       String
+  description String    @default("")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  messages    Message[]
+  documents   Document[]
+
+  @@index([createdAt])
+  @@index([updatedAt])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  chatId    String
+  role      String   // "user" | "assistant" | "system"
+  content   String
+  metadata  String?  // JSON string (SQLite doesn't have native JSON)
+  createdAt DateTime @default(now())
+
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+}
+
+model Document {
+  id           String   @id @default(cuid())
+  chatId       String
+  name         String
+  originalName String   // Original filename from upload
+  type         String   // "pdf" | "markdown"
+  filePath     String   @unique
+  fileSize     Int      // Size in bytes
+  mimeType     String
+  uploadedAt   DateTime @default(now())
+
+  // Extracted text content for LLM context
+  contentText  String?
+
+  // Processing status tracking
+  processingStatus String  @default("ready") // "uploading" | "extracting" | "indexing" | "ready" | "error"
+  processingError  String? // Error message if status is error
+  textChunks       String? // JSON array of text chunks (prepared for future embeddings)
+
+  chat         Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+  @@index([uploadedAt])
+  @@index([type])
+  @@index([processingStatus])
+}
