@@ -46,6 +46,9 @@ export interface StreamCallbacks {
   onDone?: () => void
   onError?: (error: Error) => void
   signal?: AbortSignal
+  documentIds?: string[]
+  topK?: number
+  minChunks?: number
 }
 
 export async function streamChatResponse(
@@ -70,7 +73,6 @@ export async function streamChatResponse(
   onError?: (error: Error) => void
 ) {
   try {
-    // Handle both old and new API
     const callbacks: StreamCallbacks = typeof callbacksOrOnChunk === 'function'
       ? {
           onContentChunk: callbacksOrOnChunk,
@@ -79,10 +81,30 @@ export async function streamChatResponse(
         }
       : callbacksOrOnChunk
 
+    const requestBody: {
+      chatId: string
+      message: string
+      documentIds?: string[]
+      topK?: number
+      minChunks?: number
+    } = { chatId, message }
+
+    if (callbacks.documentIds) {
+      requestBody.documentIds = callbacks.documentIds
+    }
+
+    if (callbacks.topK) {
+      requestBody.topK = callbacks.topK
+    }
+
+    if (callbacks.minChunks) {
+      requestBody.minChunks = callbacks.minChunks
+    }
+
     const response = await fetch('/api/chat-stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chatId, message }),
+      body: JSON.stringify(requestBody),
       signal: callbacks.signal
     })
 

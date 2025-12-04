@@ -2,12 +2,19 @@ import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { generateChatResponse } from '@/lib/ollama-client'
 import { RAGContext } from '@/types/upload'
+import { hybridRetrieve } from '@/lib/retrieval-service'
 
 export async function POST(req: NextRequest) {
   const abortSignal = req.signal
-  
+
   try {
-    const { chatId, message } = await req.json()
+    const {
+      chatId,
+      message,
+      topK = parseInt(process.env.DEFAULT_TOP_K || '5'),
+      minChunks = parseInt(process.env.MIN_CHUNKS || '3'),
+      documentIds
+    } = await req.json()
 
     if (!chatId || !message?.trim()) {
       return Response.json(
@@ -16,7 +23,6 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Save user message
     await prisma.message.create({
       data: {
         chatId,
@@ -25,24 +31,23 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    // Get chat context
     const chat = await prisma.chat.findUnique({
       where: { id: chatId },
       include: {
         messages: {
           orderBy: { createdAt: 'desc' },
-          take: 10, // Last 10 messages for context
+          take: 10,
           select: {
             role: true,
             content: true
           }
         },
         documents: {
+          where: { processingStatus: 'ready' },
           select: {
             id: true,
-            contentText: true,
             name: true,
-            processingStatus: true
+            embeddingStatus: true
           }
         }
       }
@@ -55,22 +60,48 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Build document context - only include ready documents
-    const readyDocs = chat.documents.filter(
-      doc => doc.contentText && doc.processingStatus === 'ready'
-    )
+    const targetDocIds = documentIds?.length > 0
+      ? documentIds
+      : chat.documents.map(d => d.id)
 
-    const usedDocuments = readyDocs.map(doc => ({
+    const retrievedChunks = targetDocIds.length > 0
+      ? await hybridRetrieve(message, targetDocIds, { topK, minChunks })
+      : []
+
+    console.log(`[Chat] Retrieved ${retrievedChunks.length} chunks:`, retrievedChunks.map(c =>
+      `${c.documentName}[${c.chunkIndex}] (score: ${c.relevanceScore.toFixed(3)})`
+    ).join(', '))
+
+    const documentContext = retrievedChunks.length > 0
+      ? retrievedChunks
+          .map(chunk => `# ${chunk.documentName} (Chunk ${chunk.chunkIndex + 1})\n\n${chunk.content}`)
+          .join('\n\n---\n\n')
+      : undefined
+
+    const usedDocumentsMap = new Map()
+
+    retrievedChunks.forEach(chunk => {
+      if (!usedDocumentsMap.has(chunk.documentId)) {
+        usedDocumentsMap.set(chunk.documentId, {
+          id: chunk.documentId,
+          name: chunk.documentName,
+          chunks: []
+        })
+      }
+      usedDocumentsMap.get(chunk.documentId).chunks.push({
+        index: chunk.chunkIndex,
+        score: chunk.relevanceScore
+      })
+    })
+
+    const usedDocuments = Array.from(usedDocumentsMap.values()).map(doc => ({
       id: doc.id,
       name: doc.name,
-      chunksUsed: [0] // Full document for now (no chunking yet)
+      chunksUsed: doc.chunks.map((c: { index: number; score: number }) => c.index),
+      relevanceScore: Math.max(...doc.chunks.map((c: { index: number; score: number }) => c.score))
     }))
 
-    const documentContext = readyDocs
-      .map(doc => `# ${doc.name}\n\n${doc.contentText}`)
-      .join('\n\n---\n\n')
-
-    const totalCharacters = documentContext.length
+    const totalCharacters = documentContext?.length || 0
 
     // Generate streaming response
     const stream = await generateChatResponse(
@@ -150,11 +181,9 @@ export async function POST(req: NextRequest) {
                   )
                 }
               } else {
-                // Inside <think> tag, look for closing </think>
                 const thinkEnd = buffer.indexOf('</think>')
 
                 if (thinkEnd === -1) {
-                  // No closing tag yet, send as reasoning if buffer is large enough
                   if (buffer.length > 10) {
                     const toSend = buffer.slice(0, -10)
                     buffer = buffer.slice(-10)
@@ -166,7 +195,6 @@ export async function POST(req: NextRequest) {
                   }
                   break
                 } else {
-                  // Found closing tag
                   const insideThink = buffer.slice(0, thinkEnd)
                   reasoning += insideThink
 
@@ -178,14 +206,13 @@ export async function POST(req: NextRequest) {
                     encoder.encode(`data: ${JSON.stringify({ type: 'reasoning_end' })}\n\n`)
                   )
 
-                  buffer = buffer.slice(thinkEnd + 8) // Skip '</think>'
+                  buffer = buffer.slice(thinkEnd + 8)
                   inThinkTag = false
                 }
               }
             }
           }
 
-          // Send any remaining buffer (if not aborted)
           if (buffer.length > 0 && !aborted) {
             if (inThinkTag) {
               reasoning += buffer

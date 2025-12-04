@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Send, User, Bot, Paperclip, ChevronDown, ChevronRight, Brain, Square, FileText } from "lucide-react"
+import { Send, User, Bot, Paperclip, ChevronDown, ChevronRight, Brain, Square, FileText, Filter } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   InputGroup,
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/input-group"
 import { useChatDetail, streamChatResponse } from "@/hooks/use-chat-detail"
 import { MessageMetadata } from "@/types/upload"
+import { DocumentSelector, SelectableDocument } from "@/components/document-selector"
 
 interface Message {
   id: string
@@ -28,7 +29,7 @@ interface ChatInterfaceProps {
 }
 
 export function ChatInterface({ chatId, chatTitle, onMessageSent, onOpenDocuments }: ChatInterfaceProps) {
-  const { messages: apiMessages, isLoading: loadingChat, refresh } = useChatDetail(chatId)
+  const { messages: apiMessages, documents: chatDocuments, isLoading: loadingChat, refresh } = useChatDetail(chatId)
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null)
@@ -37,9 +38,16 @@ export function ChatInterface({ chatId, chatTitle, onMessageSent, onOpenDocument
   const [showStreamingReasoning, setShowStreamingReasoning] = useState(false)
   const [expandedReasoning, setExpandedReasoning] = useState<Set<string>>(new Set())
   const [expandedContext, setExpandedContext] = useState<Set<string>>(new Set())
+  const [showDocumentSelector, setShowDocumentSelector] = useState(false)
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    const readyDocs = chatDocuments.filter((d: any) => d.processingStatus === 'ready')
+    setSelectedDocumentIds(readyDocs.map((d: any) => d.id))
+  }, [chatDocuments])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" })
@@ -69,7 +77,6 @@ export function ChatInterface({ chatId, chatTitle, onMessageSent, onOpenDocument
     // Create abort controller for this stream
     abortControllerRef.current = new AbortController()
 
-    // Stream the response with reasoning support
     await streamChatResponse(
       chatId,
       messageContent,
@@ -108,7 +115,8 @@ export function ChatInterface({ chatId, chatTitle, onMessageSent, onOpenDocument
           setShowStreamingReasoning(false)
           abortControllerRef.current = null
         },
-        signal: abortControllerRef.current.signal
+        signal: abortControllerRef.current.signal,
+        documentIds: selectedDocumentIds.length > 0 ? selectedDocumentIds : undefined
       }
     )
   }
@@ -408,8 +416,36 @@ export function ChatInterface({ chatId, chatTitle, onMessageSent, onOpenDocument
       </div>
 
       {/* Input Area */}
-      <div className="p-4 flex-none">
-        <div className="max-w-3xl mx-auto">
+      <div className="p-4 flex-none border-t border-border/50">
+        <div className="max-w-3xl mx-auto space-y-3">
+          {showDocumentSelector && chatDocuments.length > 0 && (
+            <div className="bg-white dark:bg-rose-950/30 rounded-lg border border-border/50 dark:border-rose-300/30 p-3 max-h-64 overflow-y-auto">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-xs font-medium text-muted-foreground dark:text-rose-300">
+                  Select documents for context
+                </h4>
+                <button
+                  onClick={() => setShowDocumentSelector(false)}
+                  className="text-xs text-muted-foreground dark:text-rose-300 hover:text-foreground dark:hover:text-rose-100"
+                >
+                  Close
+                </button>
+              </div>
+              <DocumentSelector
+                documents={chatDocuments
+                  .filter((d: any) => d.processingStatus === 'ready')
+                  .map((d: any): SelectableDocument => ({
+                    id: d.id,
+                    name: d.name,
+                    type: d.type,
+                    embeddingStatus: d.embeddingStatus
+                  }))}
+                selectedIds={selectedDocumentIds}
+                onSelectionChange={setSelectedDocumentIds}
+              />
+            </div>
+          )}
+
           <form onSubmit={handleSubmit}>
             <InputGroup className="[--radius:1rem] bg-rose-50/80 dark:bg-rose-950/20">
               <InputGroupTextarea
@@ -430,6 +466,20 @@ export function ChatInterface({ chatId, chatTitle, onMessageSent, onOpenDocument
                   variant="ghost"
                   size="icon-xs"
                   className="rounded-full ml-auto"
+                  type="button"
+                  onClick={() => setShowDocumentSelector(!showDocumentSelector)}
+                  disabled={isStreaming || !chatId || chatDocuments.length === 0}
+                  title="Select documents"
+                >
+                  <Filter className={cn(
+                    "size-4",
+                    selectedDocumentIds.length > 0 && selectedDocumentIds.length < chatDocuments.filter((d: any) => d.processingStatus === 'ready').length && "text-primary dark:text-rose-400"
+                  )} />
+                </InputGroupButton>
+                <InputGroupButton
+                  variant="ghost"
+                  size="icon-xs"
+                  className="rounded-full"
                   type="button"
                   onClick={onOpenDocuments}
                   disabled={isStreaming || !chatId}

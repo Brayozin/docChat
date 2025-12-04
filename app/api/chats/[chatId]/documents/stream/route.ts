@@ -121,26 +121,44 @@ export async function POST(req: NextRequest, context: RouteContext) {
 
       await emitter.emitProgress('indexing', 75, 'Chunking text...')
 
-      // Chunk the text for future embeddings
       const chunks = chunkText(cleaned)
 
-      await emitter.emitProgress('indexing', 85, 'Saving processed data...')
+      await emitter.emitProgress('indexing', 85, 'Creating chunk records...')
 
-      // Update document with content and chunks
+      const chunkRecords = await Promise.all(
+        chunks.map((content, index) =>
+          prisma.chunk.create({
+            data: {
+              documentId: document.id,
+              chunkIndex: index,
+              content,
+              contentLength: content.length
+            }
+          })
+        )
+      )
+
+      await emitter.emitProgress('indexing', 90, 'Saving processed data...')
+
       const updatedDocument = await prisma.document.update({
         where: { id: document.id },
         data: {
           contentText: cleaned,
           textChunks: JSON.stringify(chunks),
-          processingStatus: 'ready'
+          processingStatus: 'ready',
+          embeddingStatus: 'pending'
         }
       })
 
       await emitter.emitProgress('ready', 95, 'Finalizing...')
 
-      // Stage 4: Complete
       await emitter.emitComplete(updatedDocument.id, updatedDocument.name)
       await emitter.close()
+
+      const { startEmbeddingGeneration } = await import('@/lib/embedding-worker')
+      startEmbeddingGeneration(document.id, chunkRecords).catch(err => {
+        console.error('Background embedding failed:', err)
+      })
 
     } catch (error) {
       console.error('Error uploading document:', error)
