@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Exclude pdf-parse from bundling to avoid worker file resolution issues
+  serverExternalPackages: ['pdf-parse'],
 };
 
 export default nextConfig;
