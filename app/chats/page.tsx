@@ -24,73 +24,38 @@ import { MessageSquare, Search, Plus, Paperclip } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
+import { useChats, createChat } from "@/hooks/use-chats"
+import { useChatDetail } from "@/hooks/use-chat-detail"
+import { useDocumentUpload } from "@/hooks/use-document-upload"
 
 interface Chat {
   id: string
   title: string
   description: string
-  lastMessage?: string
-  timestamp: string
+  lastMessage?: {
+    content: string
+    createdAt: string
+  }
+  updatedAt: string
+  messageCount: number
+  documentCount: number
 }
 
-const MOCK_CHATS: Chat[] = [
-  {
-    id: "1",
-    title: "Project Planning",
-    description: "Discussion about the new feature roadmap and timeline for Q1 2025",
-    lastMessage: "Let's schedule a follow-up meeting",
-    timestamp: "2h",
-  },
-  {
-    id: "2",
-    title: "Bug Report Analysis",
-    description: "Analyzing critical bugs in the authentication system that need immediate attention",
-    lastMessage: "Fixed the login issue",
-    timestamp: "5h",
-  },
-  {
-    id: "3",
-    title: "Design Review",
-    description: "Review of the new UI components and design system updates",
-    lastMessage: "The mockups look great!",
-    timestamp: "1d",
-  },
-  {
-    id: "4",
-    title: "API Integration",
-    description: "Discussing the integration with third-party payment gateway and webhook setup",
-    lastMessage: "API keys have been configured",
-    timestamp: "2d",
-  },
-  {
-    id: "5",
-    title: "Performance Optimization",
-    description: "Strategies to improve application load time and reduce bundle size",
-    lastMessage: "Implemented lazy loading",
-    timestamp: "3d",
-  },
-  {
-    id: "6",
-    title: "Database Migration",
-    description: "Planning the migration from PostgreSQL to a more scalable solution",
-    lastMessage: "Migration script is ready",
-    timestamp: "1w",
-  },
-  {
-    id: "7",
-    title: "Security Audit",
-    description: "Comprehensive security review of authentication and authorization flows",
-    lastMessage: "All vulnerabilities addressed",
-    timestamp: "1w",
-  },
-  {
-    id: "8",
-    title: "Mobile Responsiveness",
-    description: "Making the application fully responsive for mobile and tablet devices",
-    lastMessage: "Testing on different devices",
-    timestamp: "2w",
-  },
-]
+// Helper function to format relative time
+function getRelativeTime(dateString: string): string {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+  const diffWeeks = Math.floor(diffMs / 604800000)
+
+  if (diffMins < 60) return `${diffMins}m`
+  if (diffHours < 24) return `${diffHours}h`
+  if (diffDays < 7) return `${diffDays}d`
+  return `${diffWeeks}w`
+}
 
 function ChatSidebarContent({
   selectedChatId,
@@ -99,6 +64,7 @@ function ChatSidebarContent({
   setSearchQuery,
   filteredChats,
   toggleList,
+  onNewChat,
 }: {
   selectedChatId: string | null
   setSelectedChatId: (id: string | null) => void
@@ -106,6 +72,7 @@ function ChatSidebarContent({
   setSearchQuery: (query: string) => void
   filteredChats: Chat[]
   toggleList: () => void
+  onNewChat: () => void
 }) {
   const { state, toggleSidebar } = useSidebar()
   const isCollapsed = state === "collapsed"
@@ -113,26 +80,26 @@ function ChatSidebarContent({
   return (
     <SidebarContent className="p-0 bg-transparent backdrop-blur-md">
       <div className="p-4 border-b border-border/50 flex items-center justify-between group">
-        <div 
+        <div
           className="cursor-pointer"
           onClick={isCollapsed ? toggleSidebar : undefined}
         >
-          <Image 
-            src="/docChatLogo.svg" 
-            alt="DocChat" 
-            width={32} 
+          <Image
+            src="/docChatLogo.svg"
+            alt="DocChat"
+            width={32}
             height={32}
             className="shrink-0"
           />
         </div>
         {!isCollapsed && <SidebarTrigger />}
       </div>
-      
+
       {!isCollapsed && (
         <>
           <div className="p-3 space-y-2 border-b border-border/50">
             <button
-              onClick={() => setSelectedChatId(null)}
+              onClick={onNewChat}
               className="w-full flex items-center gap-3 px-3 py-2 text-sm hover:bg-accent/50 rounded-md transition-colors"
             >
               <Plus className="size-4" />
@@ -201,7 +168,7 @@ function ChatSidebarContent({
                           {chat.title.length > 22 ? `${chat.title.slice(0, 22)}...` : chat.title}
                         </h4>
                         <span className="text-xs text-muted-foreground/60 shrink-0">
-                          {chat.timestamp}
+                          {getRelativeTime(chat.updatedAt)}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground line-clamp-2">
@@ -219,7 +186,7 @@ function ChatSidebarContent({
       {isCollapsed && (
         <div className="p-3 space-y-2 flex flex-col items-center">
           <button
-            onClick={() => setSelectedChatId(null)}
+            onClick={onNewChat}
             className="p-2 hover:bg-accent/50 rounded-md transition-colors"
             title="New chat"
           >
@@ -247,6 +214,19 @@ function ChatSidebarContent({
 }
 
 export default function ChatsPage() {
+  const { chats, isLoading, refresh } = useChats()
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Fetch documents for the selected chat
+  const { documents: chatDocuments, refresh: refreshChat } = useChatDetail(selectedChatId)
+
+  // Initialize upload hook
+  const { uploads, startUpload, cancelUpload } = useDocumentUpload(() => {
+    refreshChat()
+  })
+
   const {
     isListVisible,
     selectedDocumentId,
@@ -256,15 +236,59 @@ export default function ChatsPage() {
     selectDocument,
     closeList,
     goBackToList,
-  } = useDocumentState()
+  } = useDocumentState(chatDocuments)
 
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState("")
-
-  const filteredChats = MOCK_CHATS.filter((chat) => {
+  const filteredChats = chats.filter((chat: Chat) => {
     const query = searchQuery.toLowerCase().trim()
-    return !query || chat.description.toLowerCase().includes(query)
+    return !query || chat.description.toLowerCase().includes(query) || chat.title.toLowerCase().includes(query)
   })
+
+  const handleNewChat = async () => {
+    try {
+      const newChat = await createChat('New Chat', '')
+      await refresh()
+      setSelectedChatId(newChat.id)
+    } catch (error) {
+      console.error('Failed to create chat:', error)
+    }
+  }
+
+  const handleFileUpload = async () => {
+    if (!selectedChatId) {
+      console.warn('No chat selected for upload')
+      return
+    }
+
+    // Ensure document panel is visible
+    if (!isListVisible) {
+      toggleList()
+    }
+
+    // Trigger file input
+    fileInputRef.current?.click()
+  }
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedChatId) return
+
+    // Start upload with progress tracking
+    await startUpload(selectedChatId, file)
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleOpenDocumentsForUpload = () => {
+    // Open document panel if not visible
+    if (!isListVisible) {
+      toggleList()
+    }
+    // Then trigger file upload
+    handleFileUpload()
+  }
 
   const chatPanelRef = useRef<ImperativePanelHandle>(null)
   const docPanelRef = useRef<ImperativePanelHandle>(null)
@@ -332,10 +356,20 @@ export default function ChatsPage() {
           setSearchQuery={setSearchQuery}
           filteredChats={filteredChats}
           toggleList={toggleList}
+          onNewChat={handleNewChat}
         />
       </Sidebar>
       <SidebarInset className="bg-transparent! h-[94vh] w-full">
         <div className="relative h-full w-full p-3 box-border bg-transparent">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.md,application/pdf,text/markdown"
+            onChange={handleFileSelected}
+            className="hidden"
+          />
+
           {!isListVisible && (
             <DocumentToggleButton onClick={toggleList} isActive={false} />
           )}
@@ -354,7 +388,9 @@ export default function ChatsPage() {
               <div className="h-full bg-transparent backdrop-blur-[2px]">
                 <ChatInterface
                   chatId={selectedChatId}
-                  chatTitle={MOCK_CHATS.find(c => c.id === selectedChatId)?.title}
+                  chatTitle={chats.find((c: Chat) => c.id === selectedChatId)?.title}
+                  onMessageSent={refresh}
+                  onOpenDocuments={handleOpenDocumentsForUpload}
                 />
               </div>
             </ResizablePanel>
@@ -363,24 +399,24 @@ export default function ChatsPage() {
             {isListVisible && (
               <>
                 <ResizableHandle withHandle />
-                <ResizablePanel 
+                <ResizablePanel
                   ref={docPanelRef}
-                  defaultSize={selectedDocumentId ? 50 : 25} 
-                  minSize={20} 
+                  defaultSize={selectedDocumentId ? 50 : 25}
+                  minSize={20}
                   maxSize={70}
                   className={
-                    isInitialOpen 
-                      ? "animate-slide-in-right bg-transparent backdrop-blur-[2px]" 
-                      : isTransitioning 
-                        ? "transition-all duration-300 ease-in-out bg-transparent backdrop-blur-[2px]" 
+                    isInitialOpen
+                      ? "animate-slide-in-right bg-transparent backdrop-blur-[2px]"
+                      : isTransitioning
+                        ? "transition-all duration-300 ease-in-out bg-transparent backdrop-blur-[2px]"
                         : ""
                   }
                   style={{ viewTransitionName: 'document-panel' } as React.CSSProperties}
                 >
                   <div className="h-full bg-transparent backdrop-blur-[2px]">
                     {selectedDocumentId ? (
-                      <DocumentViewer 
-                        document={selectedDocument} 
+                      <DocumentViewer
+                        document={selectedDocument}
                         onBack={goBackToList}
                         onClose={closeList}
                       />
@@ -390,6 +426,9 @@ export default function ChatsPage() {
                         selectedDocumentId={selectedDocumentId}
                         onSelectDocument={selectDocument}
                         onClose={closeList}
+                        onUpload={handleFileUpload}
+                        uploads={uploads}
+                        onCancelUpload={cancelUpload}
                       />
                     )}
                   </div>

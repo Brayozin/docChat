@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Send, User, Bot, Paperclip } from "lucide-react"
+import { Send, User, Bot, Paperclip, ChevronDown, ChevronRight, Brain, Square, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   InputGroup,
@@ -9,32 +9,37 @@ import {
   InputGroupButton,
   InputGroupTextarea,
 } from "@/components/ui/input-group"
+import { useChatDetail, streamChatResponse } from "@/hooks/use-chat-detail"
+import { MessageMetadata } from "@/types/upload"
 
 interface Message {
   id: string
   role: "user" | "assistant"
   content: string
-  timestamp: Date
+  createdAt: string
+  metadata?: string
 }
 
 interface ChatInterfaceProps {
   chatId: string | null
   chatTitle?: string
+  onMessageSent?: () => void
+  onOpenDocuments?: () => void
 }
 
-export function ChatInterface({ chatId, chatTitle }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      role: "assistant",
-      content: "Hello! How can I help you today?",
-      timestamp: new Date(),
-    },
-  ])
+export function ChatInterface({ chatId, chatTitle, onMessageSent, onOpenDocuments }: ChatInterfaceProps) {
+  const { messages: apiMessages, isLoading: loadingChat, refresh } = useChatDetail(chatId)
   const [input, setInput] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null)
+  const [streamingMessage, setStreamingMessage] = useState("")
+  const [streamingReasoning, setStreamingReasoning] = useState("")
+  const [showStreamingReasoning, setShowStreamingReasoning] = useState(false)
+  const [expandedReasoning, setExpandedReasoning] = useState<Set<string>>(new Set())
+  const [expandedContext, setExpandedContext] = useState<Set<string>>(new Set())
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" })
@@ -42,56 +47,114 @@ export function ChatInterface({ chatId, chatTitle }: ChatInterfaceProps) {
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages])
-
-  useEffect(() => {
-    // Reset messages when chat changes
-    if (chatId) {
-      setMessages([
-        {
-          id: "1",
-          role: "assistant",
-          content: `Hello! I'm ready to discuss "${chatTitle}". How can I help you?`,
-          timestamp: new Date(),
-        },
-      ])
-    }
-  }, [chatId, chatTitle])
+  }, [apiMessages, streamingMessage])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || isLoading) return
+    if (!input.trim() || isStreaming || !chatId) return
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input.trim(),
-      timestamp: new Date(),
-    }
-
-    setMessages((prev) => [...prev, userMessage])
+    const messageContent = input.trim()
     setInput("")
-    setIsLoading(true)
+    setPendingUserMessage(messageContent)
+    setIsStreaming(true)
+    setStreamingMessage("")
+    setStreamingReasoning("")
+    setShowStreamingReasoning(false)
 
     // Focus back on input after sending
     requestAnimationFrame(() => {
       inputRef.current?.focus()
     })
 
-    // Simulate AI response
-    setTimeout(() => {
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "This is a simulated response. In a real implementation, this would connect to your AI backend.",
-        timestamp: new Date(),
+    // Create abort controller for this stream
+    abortControllerRef.current = new AbortController()
+
+    // Stream the response with reasoning support
+    await streamChatResponse(
+      chatId,
+      messageContent,
+      {
+        onContentChunk: (chunk) => {
+          setStreamingMessage((prev) => prev + chunk)
+        },
+        onReasoningChunk: (chunk) => {
+          setStreamingReasoning((prev) => prev + chunk)
+        },
+        onReasoningStart: () => {
+          setShowStreamingReasoning(true)
+        },
+        onReasoningEnd: () => {
+          // Keep showing reasoning
+        },
+        onDone: () => {
+          setIsStreaming(false)
+          setPendingUserMessage(null)
+          setStreamingMessage("")
+          setStreamingReasoning("")
+          setShowStreamingReasoning(false)
+          abortControllerRef.current = null
+          refresh()
+          onMessageSent?.()
+          requestAnimationFrame(() => {
+            inputRef.current?.focus()
+          })
+        },
+        onError: (error) => {
+          console.error('Streaming error:', error)
+          setIsStreaming(false)
+          setPendingUserMessage(null)
+          setStreamingMessage("")
+          setStreamingReasoning("")
+          setShowStreamingReasoning(false)
+          abortControllerRef.current = null
+        },
+        signal: abortControllerRef.current.signal
       }
-      setMessages((prev) => [...prev, assistantMessage])
-      setIsLoading(false)
-      requestAnimationFrame(() => {
-        inputRef.current?.focus()
-      })
-    }, 1000)
+    )
+  }
+
+  const handleStop = async () => {
+    abortControllerRef.current?.abort()
+    setIsStreaming(false)
+    abortControllerRef.current = null
+    
+    // Small delay to let the server save the partial response
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // Clear streaming state and refresh to get the saved partial response
+    setPendingUserMessage(null)
+    setStreamingMessage("")
+    setStreamingReasoning("")
+    setShowStreamingReasoning(false)
+    refresh()
+    
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
+    })
+  }
+
+  const toggleReasoning = (messageId: string) => {
+    setExpandedReasoning((prev) => {
+      const next = new Set(prev)
+      if (next.has(messageId)) {
+        next.delete(messageId)
+      } else {
+        next.add(messageId)
+      }
+      return next
+    })
+  }
+
+  const toggleContext = (messageId: string) => {
+    setExpandedContext((prev) => {
+      const next = new Set(prev)
+      if (next.has(messageId)) {
+        next.delete(messageId)
+      } else {
+        next.add(messageId)
+      }
+      return next
+    })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -125,69 +188,223 @@ export function ChatInterface({ chatId, chatTitle }: ChatInterfaceProps) {
       <div className="border-b border-border/50 p-4 backdrop-blur-sm flex-none">
         <h2 className="font-semibold truncate">{chatTitle || "Chat"}</h2>
         <p className="text-xs text-muted-foreground">
-          {messages.length} message{messages.length !== 1 ? "s" : ""}
+          {apiMessages.length} message{apiMessages.length !== 1 ? "s" : ""}
         </p>
       </div>
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={cn(
-              "flex gap-3 group",
-              message.role === "user" ? "justify-end" : "justify-start"
-            )}
-          >
-            {message.role === "assistant" && (
-              <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <Bot className="size-4 text-primary" />
-              </div>
-            )}
-
-            <div
-              className={cn(
-                "max-w-[70%] rounded-2xl px-4 py-2",
-                message.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
-              )}
-            >
-              <p className="text-sm whitespace-pre-wrap wrap-break-word">
-                {message.content}
-              </p>
-              <span className="text-xs opacity-60 mt-1 block">
-                {message.timestamp.toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-            </div>
-
-            {message.role === "user" && (
-              <div className="size-8 rounded-full bg-primary flex items-center justify-center shrink-0">
-                <User className="size-4 text-primary-foreground" />
-              </div>
-            )}
+        {loadingChat ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-muted-foreground">Loading messages...</div>
           </div>
-        ))}
+        ) : (
+          <>
+            {apiMessages.map((message: Message) => {
+              const hasMetadata = message.role === "assistant" && message.metadata
+              let reasoning = ""
+              let metadata: MessageMetadata | null = null
 
-        {isLoading && (
-          <div className="flex gap-3">
-            <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-              <Bot className="size-4 text-primary" />
-            </div>
-            <div className="bg-muted rounded-2xl px-4 py-2">
-              <div className="flex gap-1">
-                <span className="size-2 rounded-full bg-muted-foreground/30 animate-bounce [animation-delay:-0.3s]" />
-                <span className="size-2 rounded-full bg-muted-foreground/30 animate-bounce [animation-delay:-0.15s]" />
-                <span className="size-2 rounded-full bg-muted-foreground/30 animate-bounce" />
+              try {
+                if (hasMetadata && message.metadata) {
+                  metadata = JSON.parse(message.metadata)
+                  reasoning = metadata?.reasoning || ""
+                }
+              } catch (e) {
+                // Ignore parse errors
+              }
+
+              const hasReasoning = !!reasoning
+              const hasRagContext = !!metadata?.ragContext
+              const isReasoningExpanded = expandedReasoning.has(message.id)
+              const isContextExpanded = expandedContext.has(message.id)
+
+              return (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex gap-3 group",
+                    message.role === "user" ? "justify-end" : "justify-start"
+                  )}
+                >
+                  {message.role === "assistant" && (
+                    <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                      <Bot className="size-4 text-primary" />
+                    </div>
+                  )}
+
+                  <div className={cn("max-w-[70%] flex flex-col gap-2")}>
+                    {/* Reasoning Section */}
+                    {hasReasoning && reasoning && (
+                      <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20 overflow-hidden">
+                        <button
+                          onClick={() => toggleReasoning(message.id)}
+                          className="w-full px-4 py-2 flex items-center gap-2 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-100/50 dark:hover:bg-blue-900/30 transition-colors"
+                        >
+                          {isReasoningExpanded ? (
+                            <ChevronDown className="size-3" />
+                          ) : (
+                            <ChevronRight className="size-3" />
+                          )}
+                          <Brain className="size-3.5" />
+                          <span>Reasoning</span>
+                        </button>
+                        {isReasoningExpanded && (
+                          <div className="px-4 py-3 border-t border-blue-200 dark:border-blue-900">
+                            <p className="text-xs text-blue-900 dark:text-blue-100 whitespace-pre-wrap font-mono leading-relaxed">
+                              {reasoning}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* RAG Context Section */}
+                    {hasRagContext && metadata?.ragContext && (
+                      <div className="rounded-xl border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20 overflow-hidden">
+                        <button
+                          onClick={() => toggleContext(message.id)}
+                          className="w-full px-4 py-2 flex items-center gap-2 text-xs font-medium text-green-700 dark:text-green-300 hover:bg-green-100/50 dark:hover:bg-green-900/30 transition-colors"
+                        >
+                          {isContextExpanded ? (
+                            <ChevronDown className="size-3" />
+                          ) : (
+                            <ChevronRight className="size-3" />
+                          )}
+                          <FileText className="size-3.5" />
+                          <span>
+                            Context ({metadata.ragContext.documentsUsed.length} {metadata.ragContext.documentsUsed.length === 1 ? 'document' : 'documents'})
+                          </span>
+                        </button>
+                        {isContextExpanded && (
+                          <div className="px-4 py-3 border-t border-green-200 dark:border-green-900">
+                            <div className="space-y-2">
+                              {metadata.ragContext.documentsUsed.map((doc) => (
+                                <div
+                                  key={doc.id}
+                                  className="flex items-start gap-2 text-xs text-green-900 dark:text-green-100"
+                                >
+                                  <FileText className="size-3 mt-0.5 shrink-0" />
+                                  <div>
+                                    <div className="font-medium">{doc.name}</div>
+                                    <div className="text-green-700 dark:text-green-300 opacity-70">
+                                      {doc.chunksUsed.length} {doc.chunksUsed.length === 1 ? 'chunk' : 'chunks'}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                              <div className="mt-3 pt-2 border-t border-green-200 dark:border-green-900 text-xs text-green-700 dark:text-green-300">
+                                <div>Total: {metadata.ragContext.totalChunks} chunks</div>
+                                <div>Context length: {metadata.ragContext.contextLength.toLocaleString()} characters</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Message Content */}
+                    <div
+                      className={cn(
+                        "rounded-2xl px-4 py-2",
+                        message.role === "user"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted"
+                      )}
+                    >
+                      <p className="text-sm whitespace-pre-wrap wrap-break-word">
+                        {message.content}
+                      </p>
+                      <span className="text-xs opacity-60 mt-1 block">
+                        {new Date(message.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {message.role === "user" && (
+                    <div className="size-8 rounded-full bg-primary flex items-center justify-center shrink-0">
+                      <User className="size-4 text-primary-foreground" />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {pendingUserMessage && (
+              <div className="flex gap-3 justify-end">
+                <div className="max-w-[70%] flex flex-col gap-2">
+                  <div className="rounded-2xl px-4 py-2 bg-primary text-primary-foreground">
+                    <p className="text-sm whitespace-pre-wrap wrap-break-word">
+                      {pendingUserMessage}
+                    </p>
+                    <span className="text-xs opacity-60 mt-1 block">
+                      {new Date().toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <div className="size-8 rounded-full bg-primary flex items-center justify-center shrink-0">
+                  <User className="size-4 text-primary-foreground" />
+                </div>
               </div>
-            </div>
-          </div>
+            )}
+
+            {(streamingMessage || streamingReasoning) && (
+              <div className="flex gap-3">
+                <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Bot className="size-4 text-primary" />
+                </div>
+                <div className="max-w-[70%] flex flex-col gap-2">
+                  {/* Streaming/Stopped Reasoning */}
+                  {streamingReasoning && (
+                    <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20 overflow-hidden">
+                      <div className="px-4 py-2 flex items-center gap-2 text-xs font-medium text-blue-700 dark:text-blue-300">
+                        <Brain className={cn("size-3.5", isStreaming && "animate-pulse")} />
+                        <span>{isStreaming ? "Thinking..." : "Reasoning"}</span>
+                      </div>
+                      <div className="px-4 py-3 border-t border-blue-200 dark:border-blue-900">
+                        <p className="text-xs text-blue-900 dark:text-blue-100 whitespace-pre-wrap font-mono leading-relaxed">
+                          {streamingReasoning}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Streaming/Stopped Message Content */}
+                  {streamingMessage && (
+                    <div className="rounded-2xl px-4 py-2 bg-muted">
+                      <p className="text-sm whitespace-pre-wrap wrap-break-word">
+                        {streamingMessage}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {isStreaming && !streamingMessage && (
+              <div className="flex gap-3">
+                <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Bot className="size-4 text-primary" />
+                </div>
+                <div className="bg-muted rounded-2xl px-4 py-2">
+                  <div className="flex gap-1">
+                    <span className="size-2 rounded-full bg-muted-foreground/30 animate-bounce [animation-delay:-0.3s]" />
+                    <span className="size-2 rounded-full bg-muted-foreground/30 animate-bounce [animation-delay:-0.15s]" />
+                    <span className="size-2 rounded-full bg-muted-foreground/30 animate-bounce" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </>
         )}
-
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Input Area */}
@@ -201,7 +418,7 @@ export function ChatInterface({ chatId, chatTitle }: ChatInterfaceProps) {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Type your message..."
-                disabled={isLoading}
+                disabled={isStreaming}
                 className="min-h-[52px] max-h-32 resize-none bg-transparent"
                 rows={1}
               />
@@ -214,19 +431,35 @@ export function ChatInterface({ chatId, chatTitle }: ChatInterfaceProps) {
                   size="icon-xs"
                   className="rounded-full ml-auto"
                   type="button"
+                  onClick={onOpenDocuments}
+                  disabled={isStreaming || !chatId}
+                  title="Attach document"
                 >
                   <Paperclip className="size-4" />
                 </InputGroupButton>
-                <InputGroupButton
-                  type="submit"
-                  variant="default"
-                  size="icon-xs"
-                  className="rounded-full"
-                  disabled={!input.trim() || isLoading}
-                >
-                  <Send className="size-4" />
-                  <span className="sr-only">Send</span>
-                </InputGroupButton>
+                {isStreaming ? (
+                  <InputGroupButton
+                    type="button"
+                    variant="destructive"
+                    size="icon-xs"
+                    className="rounded-full"
+                    onClick={handleStop}
+                  >
+                    <Square className="size-3 fill-current" />
+                    <span className="sr-only">Stop</span>
+                  </InputGroupButton>
+                ) : (
+                  <InputGroupButton
+                    type="submit"
+                    variant="default"
+                    size="icon-xs"
+                    className="rounded-full"
+                    disabled={!input.trim()}
+                  >
+                    <Send className="size-4" />
+                    <span className="sr-only">Send</span>
+                  </InputGroupButton>
+                )}
               </InputGroupAddon>
             </InputGroup>
           </form>
