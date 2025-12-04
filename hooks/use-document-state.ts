@@ -4,19 +4,11 @@ export type Document = {
   id: string
   name: string
   type: "pdf" | "markdown"
+  fileSize?: number
+  uploadedAt?: string
 }
 
-const MOCK_DOCUMENTS: Document[] = [
-  { id: "1", name: "Project Proposal.pdf", type: "pdf" },
-  { id: "2", name: "Meeting Notes.md", type: "markdown" },
-  { id: "3", name: "Technical Spec.pdf", type: "pdf" },
-  { id: "4", name: "README.md", type: "markdown" },
-  { id: "5", name: "User Guide.pdf", type: "pdf" },
-  { id: "6", name: "Architecture.md", type: "markdown" },
-  { id: "7", name: "API Documentation.pdf", type: "pdf" },
-]
-
-export function useDocumentState() {
+export function useDocumentState(documents: Document[] = []) {
   const [isListVisible, setIsListVisible] = useState(false)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
     null
@@ -68,14 +60,14 @@ export function useDocumentState() {
   }
 
   const selectedDocument = selectedDocumentId
-    ? MOCK_DOCUMENTS.find((doc) => doc.id === selectedDocumentId) || null
+    ? documents.find((doc) => doc.id === selectedDocumentId) || null
     : null
 
   return {
     isListVisible,
     selectedDocumentId,
     selectedDocument,
-    documents: MOCK_DOCUMENTS,
+    documents,
     toggleList,
     selectDocument,
     closeList,
