@@ -179,6 +179,62 @@ npm start
 - Check DATABASE_URL in .env.local
 - Ensure user has correct permissions
 
+## How RAG Was Implemented
+
+The RAG (Retrieval Augmented Generation) system follows this flow:
+
+1. **Document Upload**: PDF/Markdown files are uploaded and text is extracted
+2. **Chunking**: Documents are split into 1000-character chunks with 200-character overlap to preserve context at boundaries
+3. **Embedding Generation**: Each chunk is embedded using Ollama's nomic-embed-text model (768 dimensions) in the background without blocking the upload
+4. **Storage**: Embeddings are stored as vectors in PostgreSQL using the pgvector extension with HNSW indexing for fast similarity search
+5. **Hybrid Retrieval**: When you ask a question:
+   - Your question is embedded using the same model
+   - Vector search finds the most semantically similar chunks from documents with embeddings
+   - Full-text fallback retrieves chunks from documents still being processed
+   - Top-K most relevant chunks (default 5) are selected
+6. **Context Building**: Selected chunks are formatted and sent to the LLM along with your question
+7. **Streaming Response**: The AI generates a response using the retrieved context, streaming it back in real-time
+
+This approach dramatically reduces the amount of context sent to the LLM (90% reduction from full documents) while maintaining high relevance through semantic search.
+
+## Technical Decisions
+
+**Why PostgreSQL + pgvector over SQLite-vss?**
+Initially considered sqlite-vss for simplicity, but PostgreSQL + pgvector offers better production readiness, native Prisma support, HNSW indexing (faster than IVFFlat), and better scalability for larger datasets. The migration was worth it for the performance gains.
+
+**Why background async embedding generation?**
+Embedding generation can take 10-30 seconds for longer documents. Running it asynchronously means users can continue uploading and chatting immediately without waiting. Documents work with full-text retrieval until embeddings are ready, then automatically upgrade to vector search.
+
+**Why chunk-based retrieval instead of full documents?**
+Sending entire documents to the LLM every time is inefficient and expensive. Smart chunking with semantic search means we only send the most relevant 5-10 chunks (usually 5,000 characters) instead of potentially 50,000+ characters. The AI gets exactly what it needs without the noise.
+
+**Why Llama2?**
+Chose Llama2 as the default chat model because it's the most performant on my machine, balancing quality and speed. The system works with any Ollama model though - you can easily switch to DeepSeek-R1, Llama3, or others via the .env config.
+
+## Planned Improvements
+
+### Document Viewer & Interaction
+- **Real-time document viewer**: Side-by-side view of PDF/Markdown with highlighting of which chunks were used in responses
+- **Context search from selection**: Highlight text in the document viewer to use as additional context or to search specific sections within chunks
+- **Document-centric navigation**: Global document listing page showing all documents across chats, click any document to jump to its chat
+
+### Chat Management
+- **Chat editing**: Edit chat titles and add descriptions for better organization
+- **Embedding chat context**: Index past conversation messages themselves, enabling semantic search across chat history ("what did we discuss about authentication?")
+
+### File Handling
+- **Batch upload**: Upload multiple files at once instead of one at a time
+- **More file formats**: Support for DOCX, TXT, HTML, and other document types
+- **Document comparison**: Diff view to compare changes between document versions
+
+### UI/UX
+- **Dark mode refinements**: Better color schemes and contrast ratios
+- **Mobile responsive design**: Optimize layout and interactions for mobile devices
+- **Chunk preview on hover**: See which specific chunks were used directly in the chat interface
+- **Real-time document viewer**: Side-by-side view of PDF/Markdown with highlighting of which chunks were used in responses
+- **Reasoning feature**: Add a reasoning feature to the chat interface
+- **Chunk viewer**: Add a chunk viewer to the chat interface to display the chunks that were used in the response
+
 ## License
 
 MIT
