@@ -6,6 +6,8 @@ export type Document = {
   type: "pdf" | "markdown"
   fileSize?: number
   uploadedAt?: string
+  processingStatus?: string
+  embeddingStatus?: string
 }
 
 export function useDocumentState(documents: Document[] = []) {

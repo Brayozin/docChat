@@ -29,7 +29,9 @@ export async function GET(req: NextRequest, context: RouteContext) {
             name: true,
             type: true,
             fileSize: true,
-            uploadedAt: true
+            uploadedAt: true,
+            processingStatus: true,
+            embeddingStatus: true
           }
         }
       }
@@ -54,7 +56,9 @@ export async function GET(req: NextRequest, context: RouteContext) {
       })),
       documents: chat.documents.map(d => ({
         ...d,
-        uploadedAt: d.uploadedAt.toISOString()
+        uploadedAt: d.uploadedAt.toISOString(),
+        processingStatus: d.processingStatus,
+        embeddingStatus: d.embeddingStatus
       }))
     })
   } catch (error) {

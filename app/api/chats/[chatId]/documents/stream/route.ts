@@ -87,6 +87,12 @@ export async function POST(req: NextRequest, context: RouteContext) {
       // Save file to disk
       const filePath = await saveFile(chatId, document.id, file)
 
+      if (!filePath) {
+        await emitter.emitError('file_save_failed', 'Failed to save file')
+        await emitter.close()
+        return
+      }
+
       // Update document with file path
       await prisma.document.update({
         where: { id: document.id },
@@ -116,8 +122,8 @@ export async function POST(req: NextRequest, context: RouteContext) {
       // Stage 3: Indexing - Process and chunk text
       await emitter.emitProgress('indexing', 65, 'Processing text...')
 
-      // Clean the text
-      const cleaned = cleanText(contentText)
+      // Preserve newlines for both markdown and PDF documents
+      const cleaned = cleanText(contentText, true)
 
       await emitter.emitProgress('indexing', 75, 'Chunking text...')
 

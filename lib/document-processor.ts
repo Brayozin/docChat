@@ -49,8 +49,8 @@ export async function extractText(
 
 export function chunkText(
   text: string,
-  chunkSize: number = 1000,
-  overlap: number = 200
+  chunkSize: number = 500,
+  overlap: number = 100
 ): string[] {
   if (!text || text.length === 0) {
     return []
@@ -77,12 +77,25 @@ export function chunkText(
   return chunks
 }
 
-export function cleanText(text: string): string {
-  return text
-    // Remove excessive whitespace
-    .replace(/\s+/g, ' ')
-    // Remove special characters that might cause issues
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-    // Trim
-    .trim()
+/**
+ * @param text - The text to clean.
+ * @param preserveNewlines - Whether to preserve newlines (useful for markdown).
+ * @returns The cleaned text.
+ */
+export function cleanText(text: string, preserveNewlines: boolean = false): string {
+  const cleaned = preserveNewlines
+    ? text
+        // Remove excessive spaces (but keep newlines)
+        .replace(/[^\S\r\n]+/g, ' ')
+        // Normalize multiple newlines to max 2
+        .replace(/\n{3,}/g, '\n\n')
+        // Remove special characters that might cause issues
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    : text
+        // Remove excessive whitespace
+        .replace(/\s+/g, ' ')
+        // Remove special characters that might cause issues
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+
+  return cleaned.trim()
 }

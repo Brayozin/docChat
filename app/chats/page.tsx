@@ -417,6 +417,7 @@ export default function ChatsPage() {
                     {selectedDocumentId ? (
                       <DocumentViewer
                         document={selectedDocument}
+                        chatId={selectedChatId}
                         onBack={goBackToList}
                         onClose={closeList}
                       />

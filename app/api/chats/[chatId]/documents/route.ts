@@ -71,7 +71,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     // Validate file size
     if (file.size > STORAGE_CONFIG.maxFileSize) {
       return Response.json(
-        { error: `File too large. Maximum size is ${STORAGE_CONFIG.maxFileSize / (1024 * 1024)}MB` },
+        { error: `File too large. Maximum size is ${STORAGE_CONFIG.maxFileSize / 20}MB` },
         { status: 413 }
       )
     }

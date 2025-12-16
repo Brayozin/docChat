@@ -242,7 +242,7 @@ export async function POST(req: NextRequest) {
             const ragContext: RAGContext | undefined = usedDocuments.length > 0
               ? {
                   documentsUsed: usedDocuments,
-                  totalChunks: usedDocuments.length,
+                  totalChunks: usedDocuments.reduce((sum, doc) => sum + doc.chunksUsed.length, 0),
                   contextLength: totalCharacters
                 }
               : undefined
