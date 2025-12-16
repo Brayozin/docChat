@@ -24,7 +24,7 @@ export function DocumentViewer({ document, chatId, onBack, onClose }: DocumentVi
     document?.id || null
   )
   
-  const [viewMode, setViewMode] = useState<'pdf' | 'text'>('pdf')
+  const [viewMode, setViewMode] = useState<'rendered' | 'text'>('rendered')
 
   const md = useMemo(() => new MarkdownIt({
     html: true,
@@ -77,17 +77,17 @@ export function DocumentViewer({ document, chatId, onBack, onClose }: DocumentVi
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {document.type === "pdf" && (
+          {(document.type === "pdf" || document.type === "markdown") && (
             <div className="flex items-center gap-1 bg-white/30 dark:bg-rose-950/30 rounded-md p-1">
               <button
-                onClick={() => setViewMode('pdf')}
+                onClick={() => setViewMode('rendered')}
                 className={`p-1.5 rounded transition-colors ${
-                  viewMode === 'pdf'
+                  viewMode === 'rendered'
                     ? 'bg-white dark:bg-rose-500/30 text-foreground dark:text-rose-100'
                     : 'hover:bg-white/50 dark:hover:bg-rose-500/20 text-muted-foreground dark:text-rose-200/60'
                 }`}
-                aria-label="PDF view"
-                title="PDF view"
+                aria-label={document.type === "pdf" ? "PDF view" : "Rendered view"}
+                title={document.type === "pdf" ? "PDF view" : "Rendered view"}
               >
                 <Eye className="size-4" />
               </button>
@@ -155,26 +155,38 @@ export function DocumentViewer({ document, chatId, onBack, onClose }: DocumentVi
         ) : (
           <div className="h-full">
             {document?.type === "markdown" ? (
-              <div className="max-w-4xl mx-auto">
-                <div 
-                  className="prose prose-sm dark:prose-invert max-w-none prose-headings:dark:text-rose-100 prose-p:dark:text-rose-100 prose-strong:dark:text-rose-50 prose-code:dark:text-rose-200 prose-pre:dark:bg-rose-950/40 prose-a:dark:text-rose-300"
-                  dangerouslySetInnerHTML={{ __html: renderedMarkdown || '' }}
-                />
-              </div>
-            ) : viewMode === 'pdf' && pdfUrl ? (
-              <PDFCanvasViewer 
-                pdfUrl={pdfUrl} 
-                documentName={document.name}
-              />
-            ) : (
-              <div className="max-w-4xl mx-auto">
-                <div className="bg-white dark:bg-rose-950/20 rounded-lg p-6 border border-border/50 dark:border-rose-300/30">
-                  <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground dark:text-rose-100">
-                    {documentContent.contentText}
-                  </pre>
+              viewMode === 'rendered' ? (
+                <div className="max-w-4xl mx-auto">
+                  <div 
+                    className="prose prose-sm dark:prose-invert max-w-none prose-headings:dark:text-rose-100 prose-p:dark:text-rose-100 prose-strong:dark:text-rose-50 prose-code:dark:text-rose-200 prose-pre:dark:bg-rose-950/40 prose-a:dark:text-rose-300"
+                    dangerouslySetInnerHTML={{ __html: renderedMarkdown || '' }}
+                  />
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="max-w-4xl mx-auto">
+                  <div className="bg-white dark:bg-rose-950/20 rounded-lg p-6 border border-border/50 dark:border-rose-300/30">
+                    <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground dark:text-rose-100">
+                      {documentContent.contentText}
+                    </pre>
+                  </div>
+                </div>
+              )
+            ) : document?.type === "pdf" ? (
+              viewMode === 'rendered' && pdfUrl ? (
+                <PDFCanvasViewer 
+                  pdfUrl={pdfUrl} 
+                  documentName={document.name}
+                />
+              ) : (
+                <div className="max-w-4xl mx-auto">
+                  <div className="bg-white dark:bg-rose-950/20 rounded-lg p-6 border border-border/50 dark:border-rose-300/30">
+                    <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground dark:text-rose-100">
+                      {documentContent.contentText}
+                    </pre>
+                  </div>
+                </div>
+              )
+            ) : null}
           </div>
         )}
       </div>
